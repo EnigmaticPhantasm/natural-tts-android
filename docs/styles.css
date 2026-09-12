@@ -366,3 +366,19 @@ optgroup {
   font-weight: 700;
   color: var(--text-muted);
 }
+
+.about-links {
+  margin-top: 0.65rem !important;
+}
+
+.about a,
+.footer a {
+  color: var(--accent);
+  text-decoration: none;
+  font-weight: 600;
+}
+
+.about a:hover,
+.footer a:hover {
+  text-decoration: underline;
+}

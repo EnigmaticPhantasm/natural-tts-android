@@ -1,22 +1,37 @@
 /**
  * Natural Reader — browser edition
- * Free Web Speech API + optional Kokoro neural TTS (CDN / Transformers.js).
- * No paid APIs, no keys, static-host friendly.
+ * Default: Piper neural TTS (@mintplex-labs/piper-tts-web, MIT)
+ * Also: Kokoro experimental + Web Speech robotic fallback.
+ * No paid APIs, no keys, static-host friendly (GitHub Pages).
  */
+
+import {
+  predict as piperPredict,
+  voices as piperVoices,
+  download as piperDownload,
+  PATH_MAP,
+  setActiveSpeakerId,
+} from "@mintplex-labs/piper-tts-web";
 
 const STORAGE_KEYS = {
   voiceURI: "nr.voiceURI",
   rate: "nr.rate",
   engine: "nr.engine",
   kokoroVoice: "nr.kokoroVoice",
+  piperVoice: "nr.piperVoice",
+  piperSpeaker: "nr.piperSpeaker",
+  piperTunes: "nr.piperTunes",
+  engineMigrated: "nr.engineMigratedToPiper",
   text: "nr.text",
   corsProxy: "nr.corsProxy",
 };
 
+const DEFAULT_PIPER_VOICE = "en_US-lessac-medium";
+const FALLBACK_PIPER_VOICE = "en_US-hfc_female-medium";
+
 const KOKORO_MODEL = "onnx-community/Kokoro-82M-v1.0-ONNX";
 const KOKORO_CDN = "https://cdn.jsdelivr.net/npm/kokoro-js@1.2.1/dist/kokoro.web.js";
 
-/** Curated Kokoro voices (American / British). */
 const KOKORO_VOICES = [
   { id: "af_heart", label: "Heart (US ♀)" },
   { id: "af_bella", label: "Bella (US ♀)" },
@@ -32,11 +47,62 @@ const KOKORO_VOICES = [
   { id: "bm_lewis", label: "Lewis (GB ♂)" },
 ];
 
-/** Public CORS proxies — only used when user explicitly enables the toggle. */
 const CORS_PROXIES = [
   (url) => `https://corsproxy.io/?${encodeURIComponent(url)}`,
   (url) => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
 ];
+
+/** Friendly first names for hashing P-codes / numeric speaker ids into nicknames. */
+const NICK_NAMES = [
+  "Ava", "Blair", "Cedar", "Daisy", "Eden", "Finn", "Greta", "Harper", "Iris", "Jules",
+  "Kai", "Luna", "Milo", "Nora", "Owen", "Piper", "Quinn", "Remy", "Sage", "Tess",
+  "Uma", "Vera", "Wren", "Xander", "Yara", "Zane", "Ada", "Beau", "Cora", "Drew",
+  "Elle", "Ford", "Gina", "Hugh", "Ivy", "Jade", "Knox", "Leah", "Moss", "Nell",
+  "Orli", "Penn", "Rita", "Shea", "Tara", "Uri", "Vale", "Wade", "Xael", "York",
+  "Zora", "Arlo", "Bryn", "Clio", "Dell", "Echo", "Faye", "Glen", "Hana", "Indigo",
+  "Joss", "Kira", "Lane", "Mira", "Nico", "Opal", "Pace", "Reed", "Skye", "Theo",
+  "Urban", "Vesper", "Willa", "Yael", "Zeke", "Ash", "Brook", "Clay", "Dove", "Ember",
+  "Flint", "Gale", "Hazel", "Isle", "Jasper", "Kelvin", "Lark", "Maple", "North", "Olive",
+  "Pearl", "Quill", "River", "Storm", "Tide", "Violet", "Willow", "Zephyr", "Ari", "Blake",
+  "Casey", "Devon", "Ellis", "Frankie", "Gray", "Harley", "Indie", "Jordan", "Kelly", "Logan",
+  "Morgan", "Noel", "Parker", "Reese", "Sidney", "Taylor", "Alex", "Cameron", "Dylan", "Emery",
+  "Finley", "Hayden", "Jamie", "Kennedy", "Leslie", "Marley", "Peyton", "Riley", "Shawn", "Tracy",
+];
+
+/** Known short speaker codes → display nicknames (arctic / emotions / misc). */
+const KNOWN_SPEAKER_NICKS = {
+  awb: "Alan",
+  rms: "Robert",
+  slt: "Shelley",
+  ksp: "Kishore",
+  clb: "Callie",
+  lnh: "Lynn",
+  aew: "Andrew",
+  bdl: "Bill",
+  jmk: "John",
+  rxr: "Rex",
+  fem: "Faye",
+  ljm: "Laura",
+  slp: "Sally",
+  aup: "August",
+  ahw: "Arthur",
+  axb: "Alexi",
+  eey: "Ellie",
+  gka: "Gregor",
+  amused: "Amused",
+  angry: "Angry",
+  disgusted: "Disgusted",
+  drunk: "Tipsy",
+  neutral: "Neutral",
+  sleepy: "Sleepy",
+  surprised: "Surprised",
+  whisper: "Whisper",
+  dsb: "Lower Sorbian",
+  hsb: "Upper Sorbian",
+  lada: "Lada",
+  F: "Female",
+  M: "Male",
+};
 
 const els = {
   text: document.getElementById("text-input"),
@@ -50,41 +116,56 @@ const els = {
   settingsBtn: document.getElementById("btn-settings"),
   settingsPanel: document.getElementById("settings-panel"),
   engine: document.getElementById("engine-select"),
+  engineHint: document.getElementById("engine-hint"),
   voice: document.getElementById("voice-select"),
+  piperVoice: document.getElementById("piper-voice-select"),
+  piperSpeaker: document.getElementById("piper-speaker-select"),
+  piperSpeakerWrap: document.getElementById("piper-speaker-wrap"),
   kokoroVoice: document.getElementById("kokoro-voice-select"),
   browserVoiceBlock: document.getElementById("browser-voice-block"),
+  piperVoiceBlock: document.getElementById("piper-voice-block"),
   kokoroVoiceBlock: document.getElementById("kokoro-voice-block"),
+  loadPiper: document.getElementById("btn-load-piper"),
   loadKokoro: document.getElementById("btn-load-kokoro"),
+  piperProgress: document.getElementById("piper-progress"),
   kokoroProgress: document.getElementById("kokoro-progress"),
+  downloadProgress: document.getElementById("download-progress"),
+  progressBar: document.getElementById("progress-bar"),
+  progressLabel: document.getElementById("progress-label"),
   rate: document.getElementById("rate-slider"),
   rateValue: document.getElementById("rate-value"),
+  pitch: document.getElementById("pitch-slider"),
+  pitchValue: document.getElementById("pitch-value"),
+  volume: document.getElementById("volume-slider"),
+  volumeValue: document.getElementById("volume-value"),
+  tuneScope: document.getElementById("tune-scope"),
 };
 
 const state = {
   voices: [],
+  piperVoiceList: [],
   speaking: false,
   paused: false,
-  engine: "browser",
-  /** @type {SpeechSynthesisUtterance | null} */
+  engine: "piper",
   utterance: null,
-  /** Remaining text for resume-after-cancel fallback */
   resumeText: "",
-  /** Char index bookmark for pause/resume */
   charIndex: 0,
-  /** @type {import("kokoro-js").KokoroTTS | null} */
   kokoro: null,
   kokoroLoading: false,
-  /** @type {AudioContext | null} */
+  piperLoading: false,
   audioCtx: null,
-  /** @type {AudioBufferSourceNode | null} */
   audioSource: null,
-  /** Playback clock for neural pause/resume */
+  /** @type {HTMLAudioElement | null} */
+  audioEl: null,
+  audioUrl: null,
   neural: {
     buffer: null,
     startedAt: 0,
     offset: 0,
     rate: 1,
   },
+  tune: { rate: 1, pitch: 1, volume: 1 },
+  suppressTuneSave: false,
 };
 
 function setStatus(message, kind = "idle") {
@@ -100,27 +181,190 @@ function updateTransport() {
   els.speak.disabled = state.speaking && !state.paused;
 }
 
-function loadPrefs() {
-  const rate = parseFloat(localStorage.getItem(STORAGE_KEYS.rate) || "1");
-  els.rate.value = String(Number.isFinite(rate) ? rate : 1);
-  els.rateValue.textContent = `${Number(els.rate.value).toFixed(2)}×`;
+function showProgress(pct, label) {
+  els.downloadProgress.hidden = false;
+  const clamped = Math.max(0, Math.min(100, pct || 0));
+  els.progressBar.style.width = `${clamped}%`;
+  if (label) els.progressLabel.textContent = label;
+}
 
-  const engine = localStorage.getItem(STORAGE_KEYS.engine) || "browser";
-  els.engine.value = engine === "kokoro" ? "kokoro" : "browser";
-  state.engine = els.engine.value;
+function hideProgress() {
+  els.downloadProgress.hidden = true;
+  els.progressBar.style.width = "0%";
+}
+
+/* ----------------------------- Nicknames ----------------------------- */
+
+function hashStr(s) {
+  let h = 2166136261;
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return h >>> 0;
+}
+
+function nicknameForSpeaker(key) {
+  if (key == null || key === "") return "Default";
+  const raw = String(key);
+  const lower = raw.toLowerCase();
+  if (KNOWN_SPEAKER_NICKS[raw]) return KNOWN_SPEAKER_NICKS[raw];
+  if (KNOWN_SPEAKER_NICKS[lower]) return KNOWN_SPEAKER_NICKS[lower];
+
+  const pMatch = raw.match(/^p(\d+)$/i);
+  if (pMatch) {
+    const nick = NICK_NAMES[hashStr(`p:${pMatch[1]}`) % NICK_NAMES.length];
+    return nick;
+  }
+
+  if (/^\d+$/.test(raw)) {
+    return NICK_NAMES[hashStr(`n:${raw}`) % NICK_NAMES.length];
+  }
+
+  // Title-case tokens for codes like VIVOSSPK01, ISSAI_...
+  if (/^[A-Z0-9_]+$/.test(raw) && raw.length > 2) {
+    const nice = raw
+      .replace(/_/g, " ")
+      .replace(/([A-Z]+)(\d+)/g, "$1 $2")
+      .toLowerCase()
+      .replace(/\b\w/g, (c) => c.toUpperCase());
+    return nice;
+  }
+
+  if (/^[a-z]{2,4}$/i.test(raw)) {
+    const nick = NICK_NAMES[hashStr(`c:${lower}`) % NICK_NAMES.length];
+    return nick;
+  }
+
+  return raw;
+}
+
+function formatSpeakerLabel(key) {
+  const nick = nicknameForSpeaker(key);
+  const code = String(key);
+  if (/^p\d+$/i.test(code)) return `${nick} (${code.toLowerCase()})`;
+  if (/^\d+$/.test(code)) return `${nick} · ${code}`;
+  if (KNOWN_SPEAKER_NICKS[code] || KNOWN_SPEAKER_NICKS[code.toLowerCase()]) {
+    return `${nick} · ${code}`;
+  }
+  if (nick.toLowerCase() === code.toLowerCase()) return code;
+  return `${nick} · ${code}`;
+}
+
+/* ----------------------------- Prefs / per-voice tune ----------------------------- */
+
+function tuneKey(voiceId, speakerKey) {
+  return speakerKey ? `${voiceId}::${speakerKey}` : voiceId;
+}
+
+function loadTuneMap() {
+  try {
+    return JSON.parse(localStorage.getItem(STORAGE_KEYS.piperTunes) || "{}") || {};
+  } catch {
+    return {};
+  }
+}
+
+function saveTuneMap(map) {
+  localStorage.setItem(STORAGE_KEYS.piperTunes, JSON.stringify(map));
+}
+
+function currentPiperSpeakerKey() {
+  if (els.piperSpeakerWrap.hidden) return "";
+  return els.piperSpeaker.value || "";
+}
+
+function getActiveTune() {
+  const engine = els.engine.value;
+  if (engine === "piper") {
+    const map = loadTuneMap();
+    const key = tuneKey(els.piperVoice.value || DEFAULT_PIPER_VOICE, currentPiperSpeakerKey());
+    const t = map[key] || {};
+    return {
+      rate: Number.isFinite(t.rate) ? t.rate : 1,
+      pitch: Number.isFinite(t.pitch) ? t.pitch : 1,
+      volume: Number.isFinite(t.volume) ? t.volume : 1,
+    };
+  }
+  const rate = parseFloat(localStorage.getItem(STORAGE_KEYS.rate) || "1");
+  return {
+    rate: Number.isFinite(rate) ? rate : 1,
+    pitch: 1,
+    volume: 1,
+  };
+}
+
+function applyTuneToSliders(tune) {
+  state.suppressTuneSave = true;
+  els.rate.value = String(tune.rate);
+  els.pitch.value = String(tune.pitch);
+  els.volume.value = String(tune.volume);
+  els.rateValue.textContent = `${Number(tune.rate).toFixed(2)}×`;
+  els.pitchValue.textContent = Number(tune.pitch).toFixed(2);
+  els.volumeValue.textContent = Number(tune.volume).toFixed(2);
+  state.tune = { ...tune };
+  state.suppressTuneSave = false;
+}
+
+function persistCurrentTune() {
+  if (state.suppressTuneSave) return;
+  const rate = Number(els.rate.value) || 1;
+  const pitch = Number(els.pitch.value) || 1;
+  const volume = Number(els.volume.value);
+  state.tune = { rate, pitch, volume: Number.isFinite(volume) ? volume : 1 };
+
+  if (els.engine.value === "piper") {
+    const map = loadTuneMap();
+    const key = tuneKey(els.piperVoice.value || DEFAULT_PIPER_VOICE, currentPiperSpeakerKey());
+    map[key] = { ...state.tune };
+    saveTuneMap(map);
+  } else {
+    localStorage.setItem(STORAGE_KEYS.rate, String(rate));
+  }
+
+  // Live-update playing audio when possible
+  if (state.audioEl && !state.audioEl.paused) {
+    state.audioEl.playbackRate = rate;
+    state.audioEl.volume = Math.max(0, Math.min(1, state.tune.volume));
+  }
+  if (state.audioSource && state.neural.buffer) {
+    try {
+      state.audioSource.playbackRate.value = rate;
+    } catch (_) { /* ignore */ }
+  }
+}
+
+function loadPrefs() {
+  // One-time migration: previous default was browser → switch stored browser to piper
+  const storedEngine = localStorage.getItem(STORAGE_KEYS.engine);
+  const migrated = localStorage.getItem(STORAGE_KEYS.engineMigrated) === "1";
+  let engine = storedEngine || "piper";
+  if (!migrated) {
+    if (!storedEngine || storedEngine === "browser") {
+      engine = "piper";
+    }
+    localStorage.setItem(STORAGE_KEYS.engineMigrated, "1");
+    localStorage.setItem(STORAGE_KEYS.engine, engine);
+  }
+  if (!["piper", "kokoro", "browser"].includes(engine)) engine = "piper";
+  els.engine.value = engine;
+  state.engine = engine;
 
   const text = localStorage.getItem(STORAGE_KEYS.text);
   if (text) els.text.value = text;
-
   els.corsProxy.checked = localStorage.getItem(STORAGE_KEYS.corsProxy) === "1";
+
+  applyTuneToSliders(getActiveTune());
 }
 
 function savePrefs() {
-  localStorage.setItem(STORAGE_KEYS.rate, els.rate.value);
   localStorage.setItem(STORAGE_KEYS.engine, els.engine.value);
   localStorage.setItem(STORAGE_KEYS.voiceURI, els.voice.value || "");
   localStorage.setItem(STORAGE_KEYS.kokoroVoice, els.kokoroVoice.value || "");
+  localStorage.setItem(STORAGE_KEYS.piperVoice, els.piperVoice.value || "");
+  localStorage.setItem(STORAGE_KEYS.piperSpeaker, els.piperSpeaker.value || "");
   localStorage.setItem(STORAGE_KEYS.corsProxy, els.corsProxy.checked ? "1" : "0");
+  persistCurrentTune();
 }
 
 function persistTextSoon() {
@@ -128,6 +372,432 @@ function persistTextSoon() {
   persistTextSoon._t = setTimeout(() => {
     localStorage.setItem(STORAGE_KEYS.text, els.text.value);
   }, 400);
+}
+
+/* ----------------------------- Piper voices ----------------------------- */
+
+function onnxSizeBytes(voice) {
+  if (!voice?.files) return 0;
+  let n = 0;
+  for (const [k, meta] of Object.entries(voice.files)) {
+    if (String(k).endsWith(".onnx") && !String(k).endsWith(".onnx.json")) {
+      n += meta?.size_bytes || 0;
+    }
+  }
+  return n;
+}
+
+function formatMb(bytes) {
+  if (!bytes) return "";
+  const mb = bytes / (1024 * 1024);
+  return mb >= 10 ? ` · ~${Math.round(mb)} MB` : ` · ~${mb.toFixed(1)} MB`;
+}
+
+function langSortKey(code) {
+  const c = (code || "").toLowerCase();
+  if (c === "en_us" || c.startsWith("en-us")) return "0-en_US";
+  if (c === "en_gb" || c.startsWith("en-gb")) return "1-en_GB";
+  if (c.startsWith("en")) return "2-en";
+  return `3-${c}`;
+}
+
+function qualityRank(q) {
+  const order = { high: 0, medium: 1, low: 2, x_low: 3 };
+  return order[q] ?? 9;
+}
+
+function buildFallbackVoiceList() {
+  const ids = Object.keys(PATH_MAP || {});
+  return ids.map((id) => {
+    const parts = id.split("-");
+    const lang = parts[0] || "unknown";
+    const quality = parts[parts.length - 1] || "medium";
+    const name = parts.slice(1, -1).join("-") || id;
+    const [family, region] = lang.includes("_") ? lang.split("_") : [lang, ""];
+    return {
+      key: id,
+      name,
+      language: {
+        code: lang,
+        family: family || "und",
+        region: region || "",
+        name_english: family === "en" ? "English" : family.toUpperCase(),
+        country_english: region || "",
+      },
+      quality,
+      num_speakers: 1,
+      speaker_id_map: {},
+      files: {},
+      aliases: [],
+    };
+  });
+}
+
+function populatePiperVoices(list) {
+  state.piperVoiceList = list.slice();
+  const preferred =
+    localStorage.getItem(STORAGE_KEYS.piperVoice) ||
+    (list.some((v) => v.key === DEFAULT_PIPER_VOICE)
+      ? DEFAULT_PIPER_VOICE
+      : list.some((v) => v.key === FALLBACK_PIPER_VOICE)
+        ? FALLBACK_PIPER_VOICE
+        : list[0]?.key);
+
+  const byLang = new Map();
+  for (const v of list) {
+    const code = v.language?.code || v.key.split("-")[0] || "unknown";
+    if (!byLang.has(code)) byLang.set(code, []);
+    byLang.get(code).push(v);
+  }
+
+  const langs = [...byLang.keys()].sort(
+    (a, b) => langSortKey(a).localeCompare(langSortKey(b)) || a.localeCompare(b)
+  );
+
+  const frag = document.createDocumentFragment();
+  for (const code of langs) {
+    const voices = byLang.get(code).sort((a, b) => {
+      return (
+        qualityRank(a.quality) - qualityRank(b.quality) ||
+        String(a.name).localeCompare(String(b.name)) ||
+        String(a.key).localeCompare(String(b.key))
+      );
+    });
+    const sample = voices[0];
+    const langName = sample?.language?.name_english || code;
+    const country = sample?.language?.country_english || sample?.language?.region || "";
+    const group = document.createElement("optgroup");
+    group.label = country ? `${langName} (${country}) · ${code}` : `${langName} · ${code}`;
+    for (const v of voices) {
+      const opt = document.createElement("option");
+      opt.value = v.key;
+      const speakers =
+        v.num_speakers > 1 ? ` · ${v.num_speakers} speakers` : "";
+      opt.textContent = `${v.name} · ${v.quality}${speakers}${formatMb(onnxSizeBytes(v))}`;
+      if (v.key === preferred) opt.selected = true;
+      group.appendChild(opt);
+    }
+    frag.appendChild(group);
+  }
+
+  els.piperVoice.innerHTML = "";
+  els.piperVoice.appendChild(frag);
+  if (preferred) els.piperVoice.value = preferred;
+  syncPiperSpeakerUI();
+  applyTuneToSliders(getActiveTune());
+}
+
+function selectedPiperVoice() {
+  return state.piperVoiceList.find((v) => v.key === els.piperVoice.value) || null;
+}
+
+function syncPiperSpeakerUI() {
+  const voice = selectedPiperVoice();
+  const map = voice?.speaker_id_map || {};
+  const entries = Object.entries(map);
+  const multi = (voice?.num_speakers || 0) > 1 && entries.length > 0;
+
+  if (!multi) {
+    els.piperSpeakerWrap.hidden = true;
+    els.piperSpeaker.innerHTML = "";
+    els.tuneScope.textContent = "per Piper voice";
+    return;
+  }
+
+  els.piperSpeakerWrap.hidden = false;
+  els.tuneScope.textContent = "per Piper voice · speaker";
+  const preferred = localStorage.getItem(STORAGE_KEYS.piperSpeaker) || "";
+  const frag = document.createDocumentFragment();
+
+  const sorted = entries.sort((a, b) => {
+    const na = formatSpeakerLabel(a[0]);
+    const nb = formatSpeakerLabel(b[0]);
+    return na.localeCompare(nb, undefined, { numeric: true });
+  });
+
+  for (const [key, id] of sorted) {
+    const opt = document.createElement("option");
+    opt.value = key;
+    opt.dataset.speakerId = String(id);
+    opt.textContent = formatSpeakerLabel(key);
+    if (key === preferred) opt.selected = true;
+    frag.appendChild(opt);
+  }
+  els.piperSpeaker.innerHTML = "";
+  els.piperSpeaker.appendChild(frag);
+  if (preferred && [...els.piperSpeaker.options].some((o) => o.value === preferred)) {
+    els.piperSpeaker.value = preferred;
+  }
+}
+
+async function loadPiperVoiceCatalog() {
+  try {
+    setStatus("Loading Piper voice catalog…", "loading");
+    const list = await piperVoices();
+    if (!Array.isArray(list) || !list.length) throw new Error("Empty voice list");
+    populatePiperVoices(list);
+    setStatus(`Idle — ${list.length} Piper voices ready.`);
+    return list.length;
+  } catch (err) {
+    console.warn("piper voices() failed, using PATH_MAP fallback", err);
+    const fallback = buildFallbackVoiceList();
+    populatePiperVoices(fallback);
+    setStatus(
+      `Idle — ${fallback.length} Piper voices (offline catalog). ${err?.message || ""}`.trim()
+    );
+    return fallback.length;
+  }
+}
+
+function piperProgressCallback(p) {
+  if (!p) return;
+  if (p.url === "tts://inference-progress") {
+    const pct = p.total ? Math.round((p.loaded / p.total) * 100) : 0;
+    showProgress(pct, `Synthesizing… ${p.loaded}/${p.total}`);
+    setStatus(`Synthesizing chunk ${p.loaded}/${p.total}…`, "loading");
+    return;
+  }
+  const pct = p.total ? Math.round((p.loaded / p.total) * 100) : 0;
+  const name = (p.url || "").split("/").pop() || "model";
+  showProgress(pct, `Downloading ${name}… ${pct}%`);
+  setStatus(`Downloading Piper model… ${pct}%`, "loading");
+  els.piperProgress.hidden = false;
+  els.piperProgress.textContent = `Downloading ${name}… ${pct}%`;
+}
+
+async function ensurePiperVoiceDownloaded(voiceId) {
+  els.piperProgress.hidden = false;
+  els.loadPiper.disabled = true;
+  state.piperLoading = true;
+  try {
+    showProgress(0, "Preparing Piper voice…");
+    await piperDownload(voiceId, piperProgressCallback);
+    els.piperProgress.textContent = "Voice cached in this browser (OPFS).";
+    hideProgress();
+    setStatus("Piper voice ready", "idle");
+  } catch (err) {
+    els.piperProgress.textContent = `Download issue (will retry on Speak): ${err?.message || err}`;
+    // predict() also downloads — don't hard-fail warm-up
+  } finally {
+    state.piperLoading = false;
+    els.loadPiper.disabled = false;
+  }
+}
+
+function stopPiperAudio() {
+  if (state.audioEl) {
+    try {
+      state.audioEl.onended = null;
+      state.audioEl.onerror = null;
+      state.audioEl.pause();
+      state.audioEl.removeAttribute("src");
+      state.audioEl.load();
+    } catch (_) { /* ignore */ }
+    state.audioEl = null;
+  }
+  if (state.audioUrl) {
+    try {
+      URL.revokeObjectURL(state.audioUrl);
+    } catch (_) { /* ignore */ }
+    state.audioUrl = null;
+  }
+  try {
+    state.audioSource?.stop();
+  } catch (_) { /* ignore */ }
+  state.audioSource = null;
+}
+
+function getAudioContext() {
+  if (!state.audioCtx || state.audioCtx.state === "closed") {
+    state.audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  }
+  return state.audioCtx;
+}
+
+/**
+ * Play a WAV/audio Blob. Uses HTMLAudioElement (iOS-friendly) when pitch≈1;
+ * AudioBufferSourceNode when pitch must change independently.
+ */
+async function playPiperBlob(blob, { rate = 1, pitch = 1, volume = 1 } = {}) {
+  stopPiperAudio();
+  const pitchDelta = Math.abs(pitch - 1) > 0.01;
+
+  if (!pitchDelta) {
+    const url = URL.createObjectURL(blob);
+    state.audioUrl = url;
+    const audio = new Audio();
+    audio.src = url;
+    audio.playbackRate = rate;
+    audio.preservesPitch = true;
+    audio.volume = Math.max(0, Math.min(1, volume));
+    state.audioEl = audio;
+    state.speaking = true;
+    state.paused = false;
+    updateTransport();
+
+    await new Promise((resolve, reject) => {
+      audio.onended = () => {
+        if (state.paused) return;
+        if (state.audioEl === audio) {
+          state.speaking = false;
+          state.paused = false;
+          updateTransport();
+          setStatus("Idle");
+          hideProgress();
+        }
+        resolve();
+      };
+      audio.onerror = () => reject(new Error("Audio playback failed"));
+      const p = audio.play();
+      if (p && typeof p.then === "function") p.catch(reject);
+    });
+    return;
+  }
+
+  // Pitch shift via AudioBufferSourceNode.detune (cents)
+  const ctx = getAudioContext();
+  if (ctx.state === "suspended") await ctx.resume();
+  const buffer = await blob.arrayBuffer().then((ab) => ctx.decodeAudioData(ab.slice(0)));
+  state.neural.buffer = buffer;
+  state.neural.rate = rate;
+  state.neural.offset = 0;
+  state.neural.pitch = pitch;
+  state.neural.volume = volume;
+  startPitchedFromOffset(0);
+}
+
+function startPitchedFromOffset(offsetSec) {
+  const ctx = getAudioContext();
+  const buffer = state.neural.buffer;
+  if (!buffer) return;
+  try {
+    state.audioSource?.stop();
+  } catch (_) {}
+
+  const source = ctx.createBufferSource();
+  source.buffer = buffer;
+  source.playbackRate.value = state.neural.rate || 1;
+  const pitch = state.neural.pitch || 1;
+  source.detune.value = 1200 * Math.log2(Math.max(0.25, pitch));
+
+  const gain = ctx.createGain();
+  gain.gain.value = Math.max(0, Math.min(1, state.neural.volume ?? 1));
+  source.connect(gain);
+  gain.connect(ctx.destination);
+
+  state.audioSource = source;
+  state.neural.offset = offsetSec;
+  state.neural.startedAt = ctx.currentTime;
+  state.speaking = true;
+  state.paused = false;
+  updateTransport();
+
+  source.onended = () => {
+    if (state.paused) return;
+    if (state.audioSource === source) {
+      state.speaking = false;
+      state.paused = false;
+      state.audioSource = null;
+      updateTransport();
+      setStatus("Idle");
+      hideProgress();
+    }
+  };
+  source.start(0, offsetSec);
+}
+
+function pausePiper() {
+  if (state.audioEl) {
+    if (state.paused) {
+      state.audioEl.playbackRate = Number(els.rate.value) || 1;
+      state.audioEl.volume = Math.max(0, Math.min(1, Number(els.volume.value) || 1));
+      state.audioEl.play().then(() => {
+        state.paused = false;
+        state.speaking = true;
+        updateTransport();
+        setStatus("Speaking (Piper)…", "speaking");
+      }).catch((err) => setStatus(`Resume failed: ${err.message}`, "error"));
+      return;
+    }
+    state.audioEl.pause();
+    state.paused = true;
+    state.speaking = false;
+    updateTransport();
+    setStatus("Paused", "idle");
+    return;
+  }
+
+  // AudioContext path
+  const ctx = getAudioContext();
+  if (state.paused) {
+    startPitchedFromOffset(state.neural.offset || 0);
+    setStatus("Speaking (Piper)…", "speaking");
+    return;
+  }
+  if (!state.speaking || !state.audioSource) return;
+  const elapsed = (ctx.currentTime - state.neural.startedAt) * (state.neural.rate || 1);
+  state.neural.offset = Math.min(
+    (state.neural.offset || 0) + elapsed,
+    state.neural.buffer?.duration || 0
+  );
+  try {
+    state.audioSource.stop();
+  } catch (_) {}
+  state.audioSource = null;
+  state.paused = true;
+  state.speaking = false;
+  updateTransport();
+  setStatus("Paused", "idle");
+}
+
+async function speakPiper(text) {
+  const trimmed = text.trim();
+  if (!trimmed) {
+    setStatus("Nothing to speak — paste some text first.", "error");
+    return;
+  }
+
+  stopAll();
+  const voiceId = els.piperVoice.value || DEFAULT_PIPER_VOICE;
+  const voice = selectedPiperVoice();
+  let speakerId = 0;
+  let speakerKey = "";
+  if (!els.piperSpeakerWrap.hidden && els.piperSpeaker.value) {
+    speakerKey = els.piperSpeaker.value;
+    const opt = els.piperSpeaker.selectedOptions[0];
+    speakerId = Number(opt?.dataset?.speakerId ?? voice?.speaker_id_map?.[speakerKey] ?? 0);
+  }
+  setActiveSpeakerId(speakerId);
+
+  const tune = getActiveTune();
+  applyTuneToSliders(tune);
+
+  state.speaking = true;
+  state.paused = false;
+  updateTransport();
+  const who = speakerKey ? ` · ${formatSpeakerLabel(speakerKey)}` : "";
+  setStatus(`Synthesizing with Piper (${voiceId}${who})…`, "loading");
+  showProgress(5, "Starting Piper…");
+
+  try {
+    const blob = await piperPredict(
+      { text: trimmed, voiceId, speakerId },
+      piperProgressCallback
+    );
+    if (!state.speaking && !state.paused) return; // stopped during synth
+    setStatus(`Speaking (Piper · ${voiceId}${who})…`, "speaking");
+    showProgress(100, "Playing…");
+    await playPiperBlob(blob, tune);
+  } catch (err) {
+    state.speaking = false;
+    state.paused = false;
+    updateTransport();
+    hideProgress();
+    const msg = err?.message || String(err);
+    setStatus(`Piper error: ${msg}`, "error");
+    els.piperProgress.hidden = false;
+    els.piperProgress.textContent = msg;
+  }
 }
 
 /* ----------------------------- Web Speech ----------------------------- */
@@ -150,7 +820,6 @@ function populateBrowserVoices() {
 
   const preferred = localStorage.getItem(STORAGE_KEYS.voiceURI);
   const frag = document.createDocumentFragment();
-
   const sortedLangs = [...byLang.keys()].sort((a, b) => {
     const score = (l) => (l.toLowerCase().startsWith("en") ? 0 : 1);
     return score(a) - score(b) || a.localeCompare(b);
@@ -174,9 +843,10 @@ function populateBrowserVoices() {
   els.voice.appendChild(frag);
 
   if (!preferred && voices.length) {
-    const en = voices.find((v) => /^en(-|_)/i.test(v.lang) && v.localService)
-      || voices.find((v) => /^en(-|_)/i.test(v.lang))
-      || voices[0];
+    const en =
+      voices.find((v) => /^en(-|_)/i.test(v.lang) && v.localService) ||
+      voices.find((v) => /^en(-|_)/i.test(v.lang)) ||
+      voices[0];
     els.voice.value = en.voiceURI;
   }
 }
@@ -186,9 +856,7 @@ function selectedBrowserVoice() {
 }
 
 function stopBrowserSpeech() {
-  if ("speechSynthesis" in window) {
-    speechSynthesis.cancel();
-  }
+  if ("speechSynthesis" in window) speechSynthesis.cancel();
   state.utterance = null;
 }
 
@@ -205,7 +873,6 @@ function speakBrowser(text, fromIndex = 0) {
   }
 
   stopBrowserSpeech();
-  // Chrome quirk: cancel can leave synth stuck; brief resume/pause dance helps.
   try {
     speechSynthesis.resume();
   } catch (_) { /* ignore */ }
@@ -214,8 +881,8 @@ function speakBrowser(text, fromIndex = 0) {
   const voice = selectedBrowserVoice();
   if (voice) u.voice = voice;
   u.rate = Number(els.rate.value) || 1;
-  u.pitch = 1;
-  u.volume = 1;
+  u.pitch = Number(els.pitch.value) || 1;
+  u.volume = Number(els.volume.value) || 1;
 
   state.charIndex = fromIndex;
   state.resumeText = text;
@@ -223,14 +890,11 @@ function speakBrowser(text, fromIndex = 0) {
   state.speaking = true;
   state.paused = false;
   updateTransport();
-  setStatus(`Speaking (browser)${voice ? ` · ${voice.name}` : ""}…`, "speaking");
+  setStatus(`Speaking (browser / system)${voice ? ` · ${voice.name}` : ""}…`, "speaking");
 
   u.onboundary = (ev) => {
-    if (typeof ev.charIndex === "number") {
-      state.charIndex = fromIndex + ev.charIndex;
-    }
+    if (typeof ev.charIndex === "number") state.charIndex = fromIndex + ev.charIndex;
   };
-
   u.onend = () => {
     if (state.paused) return;
     state.speaking = false;
@@ -239,7 +903,6 @@ function speakBrowser(text, fromIndex = 0) {
     updateTransport();
     setStatus("Idle");
   };
-
   u.onerror = (ev) => {
     if (ev.error === "canceled" || ev.error === "interrupted") return;
     state.speaking = false;
@@ -247,37 +910,27 @@ function speakBrowser(text, fromIndex = 0) {
     updateTransport();
     setStatus(`Speech error: ${ev.error || "unknown"}`, "error");
   };
-
   speechSynthesis.speak(u);
 }
 
 function pauseBrowser() {
   if (!state.speaking && !state.paused) return;
-
   if (state.paused) {
-    // Resume
     if (speechSynthesis.paused) {
       speechSynthesis.resume();
       state.paused = false;
       state.speaking = true;
       updateTransport();
-      setStatus("Speaking (browser)…", "speaking");
+      setStatus("Speaking (browser / system)…", "speaking");
       return;
     }
-    // Fallback: re-speak from last boundary
     speakBrowser(state.resumeText || els.text.value, state.charIndex || 0);
     return;
   }
-
-  // Pause
   if (typeof speechSynthesis.pause === "function") {
     speechSynthesis.pause();
-    // Some browsers ignore pause — detect and use cancel+resume pattern later
     setTimeout(() => {
-      if (speechSynthesis.speaking && !speechSynthesis.paused) {
-        // Pause unsupported: cancel and keep bookmark
-        speechSynthesis.cancel();
-      }
+      if (speechSynthesis.speaking && !speechSynthesis.paused) speechSynthesis.cancel();
       state.paused = true;
       state.speaking = false;
       updateTransport();
@@ -309,13 +962,11 @@ function populateKokoroVoices() {
 
 async function ensureKokoro() {
   if (state.kokoro) return state.kokoro;
-  if (state.kokoroLoading) {
-    throw new Error("Kokoro is already loading — please wait.");
-  }
+  if (state.kokoroLoading) throw new Error("Kokoro is already loading — please wait.");
 
   state.kokoroLoading = true;
   els.kokoroProgress.hidden = false;
-  els.kokoroProgress.textContent = "Loading Kokoro model (first time ~50–100 MB over the network)…";
+  els.kokoroProgress.textContent = "Loading Kokoro model (first time ~50–100 MB)…";
   setStatus("Loading Kokoro neural model…", "loading");
   els.loadKokoro.disabled = true;
 
@@ -326,7 +977,6 @@ async function ensureKokoro() {
 
     const device = navigator.gpu ? "webgpu" : "wasm";
     const dtype = device === "webgpu" ? "fp32" : "q8";
-
     els.kokoroProgress.textContent = `Initializing on ${device} (${dtype})…`;
 
     state.kokoro = await KokoroTTS.from_pretrained(KOKORO_MODEL, {
@@ -344,14 +994,14 @@ async function ensureKokoro() {
       },
     });
 
-    els.kokoroProgress.textContent = "Kokoro ready (cached by the browser for offline reuse).";
+    els.kokoroProgress.textContent = "Kokoro ready (cached by the browser).";
     setStatus("Kokoro ready", "idle");
     return state.kokoro;
   } catch (err) {
     state.kokoro = null;
     const msg = err?.message || String(err);
     els.kokoroProgress.textContent = `Failed to load Kokoro: ${msg}`;
-    setStatus(`Kokoro load failed — use Browser voices. ${msg}`, "error");
+    setStatus(`Kokoro load failed — try Piper or Browser. ${msg}`, "error");
     throw err;
   } finally {
     state.kokoroLoading = false;
@@ -362,32 +1012,18 @@ async function ensureKokoro() {
 function stopNeuralAudio() {
   try {
     state.audioSource?.stop();
-  } catch (_) { /* already stopped */ }
+  } catch (_) {}
   state.audioSource = null;
-  if (state.audioCtx && state.audioCtx.state !== "closed") {
-    // keep ctx for reuse
-  }
   state.neural.buffer = null;
   state.neural.offset = 0;
 }
 
-function getAudioContext() {
-  if (!state.audioCtx || state.audioCtx.state === "closed") {
-    state.audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-  }
-  return state.audioCtx;
-}
-
-/**
- * Convert Kokoro RawAudio / Float32Array to AudioBuffer and play.
- */
 async function playNeuralAudio(rawAudio, playbackRate = 1) {
   const ctx = getAudioContext();
   if (ctx.state === "suspended") await ctx.resume();
 
   let samples;
   let sampleRate = 24000;
-
   if (rawAudio?.audio) {
     samples = rawAudio.audio;
     sampleRate = rawAudio.sampling_rate || rawAudio.sample_rate || 24000;
@@ -404,59 +1040,22 @@ async function playNeuralAudio(rawAudio, playbackRate = 1) {
 
   const buffer = ctx.createBuffer(1, samples.length, sampleRate);
   buffer.copyToChannel(samples instanceof Float32Array ? samples : new Float32Array(samples), 0);
-
   state.neural.buffer = buffer;
   state.neural.rate = playbackRate;
+  state.neural.pitch = 1;
+  state.neural.volume = Number(els.volume.value) || 1;
   state.neural.offset = 0;
-  startNeuralFromOffset(0);
-}
-
-function startNeuralFromOffset(offsetSec) {
-  const ctx = getAudioContext();
-  const buffer = state.neural.buffer;
-  if (!buffer) return;
-
-  try {
-    state.audioSource?.stop();
-  } catch (_) {}
-
-  const source = ctx.createBufferSource();
-  source.buffer = buffer;
-  source.playbackRate.value = state.neural.rate || 1;
-  source.connect(ctx.destination);
-
-  state.audioSource = source;
-  state.neural.offset = offsetSec;
-  state.neural.startedAt = ctx.currentTime;
-  state.speaking = true;
-  state.paused = false;
-  updateTransport();
-
-  source.onended = () => {
-    if (state.paused) return;
-    // Natural end vs stop
-    if (state.audioSource === source) {
-      state.speaking = false;
-      state.paused = false;
-      state.audioSource = null;
-      updateTransport();
-      setStatus("Idle");
-    }
-  };
-
-  source.start(0, offsetSec);
+  startPitchedFromOffset(0);
 }
 
 function pauseNeural() {
   const ctx = getAudioContext();
   if (state.paused) {
-    // Resume
-    startNeuralFromOffset(state.neural.offset || 0);
+    startPitchedFromOffset(state.neural.offset || 0);
     setStatus("Speaking (Kokoro)…", "speaking");
     return;
   }
   if (!state.speaking || !state.audioSource) return;
-
   const elapsed = (ctx.currentTime - state.neural.startedAt) * (state.neural.rate || 1);
   state.neural.offset = Math.min(
     (state.neural.offset || 0) + elapsed,
@@ -513,15 +1112,13 @@ async function speakKokoro(text) {
   setStatus(`Synthesizing with Kokoro (${voice})…`, "loading");
 
   try {
-    // Generate chunks sequentially and concatenate for simpler pause/resume
     const ctx = getAudioContext();
     if (ctx.state === "suspended") await ctx.resume();
 
     const arrays = [];
     let sampleRate = 24000;
-
     for (let i = 0; i < chunks.length; i++) {
-      if (!state.speaking && !state.paused) return; // stopped
+      if (!state.speaking && !state.paused) return;
       setStatus(`Synthesizing chunk ${i + 1}/${chunks.length}…`, "loading");
       const audio = await tts.generate(chunks[i], { voice });
       let samples;
@@ -561,29 +1158,24 @@ async function speakKokoro(text) {
 
 function extractReadableText(html, baseUrl) {
   const doc = new DOMParser().parseFromString(html, "text/html");
-
   for (const sel of [
     "script", "style", "noscript", "svg", "iframe", "nav", "footer",
     "header", "aside", "form", "button", "[role='navigation']", "[role='banner']",
   ]) {
     doc.querySelectorAll(sel).forEach((n) => n.remove());
   }
-
   const article =
     doc.querySelector("article") ||
     doc.querySelector("main") ||
     doc.querySelector("[role='main']") ||
     doc.body;
-
   if (!article) return "";
-
   const title = (doc.querySelector("title")?.textContent || "").trim();
   const text = (article.innerText || article.textContent || "")
     .replace(/\r/g, "")
     .replace(/[ \t]+\n/g, "\n")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
-
   const header = title ? `${title}\n\n` : "";
   const note = baseUrl ? `(Source: ${baseUrl})\n\n` : "";
   return `${header}${note}${text}`.trim();
@@ -591,15 +1183,11 @@ function extractReadableText(html, baseUrl) {
 
 async function fetchPage(url) {
   const abs = new URL(url, location.href).href;
-  if (!/^https?:/i.test(abs)) {
-    throw new Error("Only http(s) URLs are supported.");
-  }
+  if (!/^https?:/i.test(abs)) throw new Error("Only http(s) URLs are supported.");
 
   const attempts = [];
   if (els.corsProxy.checked) {
-    for (const make of CORS_PROXIES) {
-      attempts.push({ label: "CORS proxy", url: make(abs) });
-    }
+    for (const make of CORS_PROXIES) attempts.push({ label: "CORS proxy", url: make(abs) });
   }
   attempts.push({ label: "direct", url: abs });
 
@@ -627,7 +1215,7 @@ async function fetchPage(url) {
 
   const hint = els.corsProxy.checked
     ? "Direct fetch and third-party proxies both failed."
-    : "Browser CORS blocked this site. Enable the third-party CORS proxy toggle, or open the page yourself and paste the text.";
+    : "Browser CORS blocked this site. Enable the third-party CORS proxy toggle, or paste the text.";
   throw new Error(`${hint} (${lastErr?.message || lastErr})`);
 }
 
@@ -635,37 +1223,54 @@ async function fetchPage(url) {
 
 function stopAll() {
   stopBrowserSpeech();
+  stopPiperAudio();
   stopNeuralAudio();
   state.speaking = false;
   state.paused = false;
   state.resumeText = "";
   state.charIndex = 0;
+  hideProgress();
   updateTransport();
 }
 
 function syncEngineUI() {
-  const neural = els.engine.value === "kokoro";
-  state.engine = els.engine.value;
-  els.browserVoiceBlock.hidden = neural;
-  els.kokoroVoiceBlock.hidden = !neural;
+  const engine = els.engine.value;
+  state.engine = engine;
+  els.piperVoiceBlock.hidden = engine !== "piper";
+  els.kokoroVoiceBlock.hidden = engine !== "kokoro";
+  els.browserVoiceBlock.hidden = engine !== "browser";
+
+  if (engine === "piper") {
+    els.engineHint.textContent =
+      "Piper downloads a free ONNX voice on first use (cached via OPFS), then runs on-device. 100+ MIT voices.";
+    els.tuneScope.textContent = els.piperSpeakerWrap.hidden
+      ? "per Piper voice"
+      : "per Piper voice · speaker";
+  } else if (engine === "kokoro") {
+    els.engineHint.textContent =
+      "Kokoro downloads a free ~82M ONNX model on first use, then runs offline in this browser.";
+    els.tuneScope.textContent = "global (Kokoro)";
+  } else {
+    els.engineHint.textContent =
+      "Uses your OS / browser speechSynthesis voices — often robotic. Prefer Piper for natural speech.";
+    els.tuneScope.textContent = "global (browser)";
+  }
+
+  applyTuneToSliders(getActiveTune());
   savePrefs();
 }
 
 async function onSpeak() {
   const text = els.text.value;
-  if (els.engine.value === "kokoro") {
-    await speakKokoro(text);
-  } else {
-    speakBrowser(text, 0);
-  }
+  if (els.engine.value === "piper") await speakPiper(text);
+  else if (els.engine.value === "kokoro") await speakKokoro(text);
+  else speakBrowser(text, 0);
 }
 
 function onPause() {
-  if (els.engine.value === "kokoro") {
-    pauseNeural();
-  } else {
-    pauseBrowser();
-  }
+  if (els.engine.value === "piper") pausePiper();
+  else if (els.engine.value === "kokoro") pauseNeural();
+  else pauseBrowser();
 }
 
 function onStop() {
@@ -705,14 +1310,35 @@ function bind() {
   });
 
   els.text.addEventListener("input", persistTextSoon);
-  els.rate.addEventListener("input", () => {
+
+  const onTuneInput = () => {
     els.rateValue.textContent = `${Number(els.rate.value).toFixed(2)}×`;
-    savePrefs();
-  });
+    els.pitchValue.textContent = Number(els.pitch.value).toFixed(2);
+    els.volumeValue.textContent = Number(els.volume.value).toFixed(2);
+    persistCurrentTune();
+  };
+  els.rate.addEventListener("input", onTuneInput);
+  els.pitch.addEventListener("input", onTuneInput);
+  els.volume.addEventListener("input", onTuneInput);
+
   els.voice.addEventListener("change", savePrefs);
   els.kokoroVoice.addEventListener("change", savePrefs);
+  els.piperVoice.addEventListener("change", () => {
+    syncPiperSpeakerUI();
+    applyTuneToSliders(getActiveTune());
+    savePrefs();
+  });
+  els.piperSpeaker.addEventListener("change", () => {
+    applyTuneToSliders(getActiveTune());
+    savePrefs();
+  });
   els.engine.addEventListener("change", syncEngineUI);
   els.corsProxy.addEventListener("change", savePrefs);
+
+  els.loadPiper.addEventListener("click", () => {
+    const id = els.piperVoice.value || DEFAULT_PIPER_VOICE;
+    ensurePiperVoiceDownloaded(id);
+  });
   els.loadKokoro.addEventListener("click", () => {
     ensureKokoro().catch(() => {});
   });
@@ -724,7 +1350,6 @@ function bind() {
     els.settingsBtn.setAttribute("aria-expanded", open ? "true" : "false");
   });
 
-  // Desktop: settings always visible via CSS; ensure not permanently hidden on wide screens after toggle
   const mq = window.matchMedia("(min-width: 900px)");
   const syncSettingsVisibility = () => {
     if (mq.matches) {
@@ -736,23 +1361,23 @@ function bind() {
   syncSettingsVisibility();
 }
 
-function init() {
+async function init() {
   loadPrefs();
   populateKokoroVoices();
   populateBrowserVoices();
+  // Show PATH_MAP fallback immediately so the select isn't empty while network loads
+  populatePiperVoices(buildFallbackVoiceList());
   syncEngineUI();
   bind();
   updateTransport();
 
   if ("speechSynthesis" in window) {
     speechSynthesis.addEventListener("voiceschanged", populateBrowserVoices);
-    // Some browsers populate asynchronously
     setTimeout(populateBrowserVoices, 250);
-  } else {
-    setStatus("Web Speech API missing — try Chrome/Edge/Safari, or load Kokoro neural.", "error");
   }
 
-  setStatus("Idle — paste text or load a URL.");
+  const count = await loadPiperVoiceCatalog();
+  setStatus(`Idle — Piper neural ready (${count} voices). Paste text or load a URL.`);
 }
 
 init();

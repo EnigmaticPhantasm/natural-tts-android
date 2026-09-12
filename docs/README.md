@@ -3,110 +3,108 @@
 Free, static, single-page text-to-speech that mirrors the Android **Natural Reader** app in the browser.
 
 - Paste text **or** load a page URL (readable-text extract)
-- Speak with **browser voices** (Web Speech API) or optional **Kokoro neural** TTS
+- **Default engine: Piper neural voices** (100+ free MIT voices via `@mintplex-labs/piper-tts-web`)
+- Optional **Kokoro** neural TTS and **browser / system** Web Speech (robotic fallback)
+- Per–Piper-voice (and per-speaker) **speed / pitch / volume** saved in `localStorage`
+- Multi-speaker voices show nicknamed speakers (e.g. `Iris (p225)`)
 - No paid APIs, no API keys, no accounts
-- Works offline for speech after first load of any neural model assets (browser cache)
 
 ## Open locally
 
 Any of these work (no Node build step):
 
-1. **Double-click** `index.html`  
-   - Browser voices work.  
-   - Some browsers restrict module CDN / WASM from `file://`. If Kokoro fails to load, use a local server (below).
-
-2. **Simple static server** (recommended):
+1. **Simple static server** (recommended — required for ESM import maps / WASM):
 
    ```bash
-   # Python 3
    cd web
    python3 -m http.server 8080
    # → http://localhost:8080
    ```
 
-   ```bash
-   # Node (if installed)
-   npx --yes serve .
-   ```
+2. **VS Code / Cursor** Live Preview / Live Server on the `web/` folder.
 
-3. **VS Code / Cursor** “Live Preview” / Live Server on the `web/` folder.
+3. Double-click `index.html` may fail module/CDN loads on `file://` — prefer a local server.
 
 ## GitHub Pages
 
-Point Pages at `/` or `/docs`, or publish the `web/` folder as the site root:
+This repo publishes `docs/` (a mirror of `web/`). After editing `web/`, sync:
 
-- Settings → Pages → Deploy from branch → folder containing `index.html`
-- Or copy `web/*` into `docs/` on `main`
+```bash
+cp -a web/. docs/
+```
 
-CDN imports (`cdn.jsdelivr.net` for Kokoro) need network on first neural load. After that, the browser cache usually keeps WASM/model assets available offline for that origin.
+Then hard-refresh the live site (bypass cache):
+
+- Desktop: Ctrl+Shift+R / Cmd+Shift+R  
+- iPhone Safari: clear website data for the Pages host, or open in a Private tab  
+- Or append `?v=` + a new number to the URL once
 
 ## Features
 
 | Control | Behavior |
 |--------|----------|
 | **Text area** | Paste or edit; last draft saved in `localStorage` |
-| **Load from URL** | Fetches HTML, strips scripts/nav/chrome, extracts readable text |
+| **Load from URL** | Fetches HTML, strips chrome, extracts readable text |
 | **CORS proxy** | **Off by default.** Optional third-party proxy when direct fetch fails |
-| **Speak / Pause / Stop** | Web Speech pause/resume (with cancel+resume fallback); Kokoro offset-based pause |
-| **Engine** | Browser voices **or** Kokoro (experimental) |
-| **Rate** | 0.5×–2×, persisted |
-| **Voice** | Grouped browser voices by language; curated Kokoro US/GB list |
+| **Speak / Pause / Stop** | Piper via `<audio>` (iOS-friendly) or AudioContext when pitch ≠ 1 |
+| **Engine** | **Piper (default)** · Kokoro · Browser/system (robotic) |
+| **Voice tune** | Speed, pitch, volume — **per Piper voice / speaker** |
+| **Speaker** | Shown when `num_speakers > 1`; P-codes get human nicknames |
 
 ## Voice engines
 
-### 1. Browser voices (default, most reliable)
+### 1. Piper neural (default, recommended)
 
-Uses the built-in [`speechSynthesis`](https://developer.mozilla.org/en-US/docs/Web/API/SpeechSynthesis) API.
+Uses a vendored/patched build of [`@mintplex-labs/piper-tts-web@1.0.5`](https://www.npmjs.com/package/@mintplex-labs/piper-tts-web) (MIT) with:
 
-- Free, no download for local system voices
-- Quality and language set depend on the OS / browser
-- Voice + rate remembered in `localStorage`
+- Import map → `onnxruntime-web@1.18.0` WASM from jsDelivr (`dist/esm/ort.wasm.min.js`)
+- Phonemizer WASM from `@diffusionstudio/piper-wasm` (jsDelivr)
+- Voice ONNX models from Hugging Face (`diffusionstudio/piper-voices`) on first use, cached in **OPFS**
+- Full catalog from `voices()` (falls back to packaged `PATH_MAP` / static JSON if HF is unreachable)
+- Default voice: `en_US-lessac-medium` (fallback `en_US-hfc_female-medium`)
+- Multi-speaker `sid` support + iOS-safe single-thread WASM when the page is not cross-origin isolated
 
-### 2. Kokoro neural (experimental, free)
+### 2. Kokoro neural (experimental)
 
-Loads [`kokoro-js`](https://www.npmjs.com/package/kokoro-js) from jsDelivr and the public ONNX model `onnx-community/Kokoro-82M-v1.0-ONNX` via Transformers.js.
+Loads `kokoro-js` from jsDelivr + public ONNX weights. Prefer Chrome/Edge with WebGPU.
 
-- First use downloads tens of MB (q8/WASM or fp32/WebGPU) — then cached
-- Runs **in the browser** (no server TTS)
-- Prefer **Chrome/Edge** with WebGPU when available
-- Use **Load / warm up Kokoro model** in Settings before long passages
-- If the CDN or WASM backend fails, fall back to Browser voices
+### 3. Browser / system TTS (robotic fallback)
 
-### Piper in the browser
+Built-in `speechSynthesis` — quality depends on the OS; labeled clearly as robotic/system fallback.
 
-Full Piper (phonemizer WASM + onnxruntime-web + voice ONNX) is possible but fragile on plain static hosts (WASM path / MIME / CDN 404 issues). This MVP prioritizes **solid Web Speech + working Kokoro**. To plug Piper later:
+## iOS / Safari notes
 
-1. Self-host matching `onnxruntime-web` WASM next to the page  
-2. Add `@mintplex-labs/piper-tts-web` or `@realtimex/piper-tts-web` with explicit `wasmPaths`  
-3. Point voice IDs at Piper ONNX models (e.g. `en_US-amy-low`) stored under OPFS or a same-origin `/models/` folder  
-
-The Android app already uses Piper/Kokoro via sherpa-onnx for the best on-device path.
+- Needs **HTTPS** (or localhost) for OPFS model cache and secure audio.
+- Import maps require **Safari 16.4+**.
+- WASM threads: we force **1 thread** unless `crossOriginIsolated` (GitHub Pages usually is not) — avoids SharedArrayBuffer failures on iPhone.
+- First Speak must follow a user tap (Speak button). Playback uses `HTMLAudioElement` when pitch is neutral for better mobile behavior.
+- Large voices (50–80+ MB): download on Wi‑Fi the first time; progress UI is shown.
+- If OPFS write fails, synthesis can still fetch the model for that session (cache may not persist).
 
 ## CORS & URL loading
 
-Browsers block most cross-origin `fetch` calls unless the target site sends permissive CORS headers.
-
-- **Default:** direct fetch only — many news sites will fail with a clear error  
-- **Optional toggle:** “Use third-party CORS proxy” sends the URL through a public proxy (`corsproxy.io` / `allorigins`). Treat as **untrusted third-party**; privacy-sensitive pages should be copied manually instead  
-- **Always works:** open the article yourself → select all → paste into the textarea  
+- **Default:** direct fetch only  
+- **Optional toggle:** third-party CORS proxy (`corsproxy.io` / `allorigins`)  
+- **Always works:** open the article yourself → paste into the textarea  
 
 ## Privacy
 
-- Speech synthesis runs in your browser  
-- Network is used only to: fetch a URL you request, load CDN libraries / Kokoro weights you choose, or (if enabled) a CORS proxy  
+- Speech runs in your browser  
+- Network: URL you request, CDN libs, Hugging Face Piper models you choose, optional CORS proxy  
 - No analytics, no accounts, no TTS API keys  
 
 ## Files
 
 ```
 web/
-├── index.html   # Shell + Material-ish layout
-├── styles.css   # Dark-friendly responsive UI
-├── app.js       # Web Speech + Kokoro + URL extract
-└── README.md
+├── index.html
+├── styles.css
+├── app.js
+├── README.md
+└── vendor/piper-tts-web/   # patched MIT bundle (speaker id + iOS threads)
 ```
 
 ## License notes
 
-- App UI code in this folder: same project license as the Android tree  
-- Kokoro / Transformers.js / Piper models: see upstream Apache-2.0 / MIT terms before redistributing weights  
+- App UI code: same project license as the Android tree  
+- Piper / onnxruntime-web / Kokoro models & runtimes: upstream MIT / Apache-2.0 — check each voice card before redistributing weights  

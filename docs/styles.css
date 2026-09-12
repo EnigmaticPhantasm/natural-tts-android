@@ -382,3 +382,58 @@ optgroup {
 .footer a:hover {
   text-decoration: underline;
 }
+
+
+.progress-block {
+  margin-top: 0.75rem;
+}
+
+.progress-track {
+  height: 0.45rem;
+  border-radius: 999px;
+  background: var(--bg-soft);
+  border: 1px solid var(--border);
+  overflow: hidden;
+}
+
+.progress-bar {
+  height: 100%;
+  width: 0%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--accent-strong), #81c784);
+  transition: width 0.15s ease;
+}
+
+.speaker-wrap {
+  margin-top: 0.75rem;
+}
+
+.tune-heading {
+  margin: 0 0 0.65rem;
+  font-size: 0.95rem;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.4rem;
+}
+
+.tune-scope {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+#pitch-value,
+#volume-value {
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+  text-transform: none;
+  letter-spacing: 0;
+  font-weight: 700;
+}
+
+.setting-block .field-label + input[type="range"] {
+  margin-bottom: 0.65rem;
+}

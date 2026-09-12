@@ -20,11 +20,12 @@ Free, on-device text-to-speech Android app. Paste text or a URL, pick a **Piper*
 
 ## Browser version
 
-A free static web twin lives in [`web/`](web/):
+A free static web twin lives in [`web/`](web/) (GitHub Pages serves [`docs/`](docs/), kept in sync):
 
 - Paste text or load a URL (readable-text extract; optional third-party CORS proxy, **off** by default)
-- **Web Speech API** voices with rate + pause/resume, plus optional **Kokoro** neural TTS in-browser (CDN / onnx, no paid APIs)
-- Open `web/index.html` locally, serve the folder (`python3 -m http.server`), or host on GitHub Pages — see [`web/README.md`](web/README.md)
+- **Default: Piper neural voices** (100+ free MIT models via `@mintplex-labs/piper-tts-web`, on-demand download + OPFS cache) with per-voice speed/pitch/volume and nicknamed multi-speakers
+- Optional **Kokoro** neural TTS and **browser/system** Web Speech (robotic fallback)
+- Open via a local static server (`python3 -m http.server` in `web/`), or https://enigmaticphantasm.github.io/natural-tts-android/ — see [`web/README.md`](web/README.md)
 
 ## Open in Android Studio
 

@@ -3,11 +3,22 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <meta name="description" content="Natural Reader — free on-device text-to-speech. Use it at https://enigmaticphantasm.github.io/natural-tts-android/ · source https://github.com/EnigmaticPhantasm/natural-tts-android" />
+  <meta name="description" content="Natural Reader — free on-device Piper neural text-to-speech. https://enigmaticphantasm.github.io/natural-tts-android/ · https://github.com/EnigmaticPhantasm/natural-tts-android" />
   <meta name="theme-color" content="#0f1419" />
   <title>Natural Reader</title>
   <link rel="stylesheet" href="styles.css" />
   <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin />
+  <link rel="preconnect" href="https://cdnjs.cloudflare.com" crossorigin />
+  <link rel="preconnect" href="https://huggingface.co" crossorigin />
+  <script type="importmap">
+  {
+    "imports": {
+      "onnxruntime-web": "https://cdn.jsdelivr.net/npm/onnxruntime-web@1.18.0/dist/esm/ort.wasm.min.js",
+      "onnxruntime-web/wasm": "https://cdn.jsdelivr.net/npm/onnxruntime-web@1.18.0/dist/esm/ort.wasm.min.js",
+      "@mintplex-labs/piper-tts-web": "./vendor/piper-tts-web/piper-tts-web.js"
+    }
+  }
+  </script>
 </head>
 <body>
   <div class="app">
@@ -16,7 +27,7 @@
         <span class="brand-mark" aria-hidden="true">◇</span>
         <div>
           <h1>Natural Reader</h1>
-          <p class="tagline">Free · on-device · no accounts</p>
+          <p class="tagline">Piper neural · free · on-device</p>
         </div>
       </div>
       <button type="button" id="btn-settings" class="icon-btn" aria-expanded="false" aria-controls="settings-panel" title="Settings">
@@ -58,6 +69,10 @@
         </div>
 
         <p id="status" class="status" role="status" aria-live="polite">Idle</p>
+        <div id="download-progress" class="progress-block" hidden>
+          <div class="progress-track" aria-hidden="true"><div id="progress-bar" class="progress-bar"></div></div>
+          <p id="progress-label" class="hint">Downloading voice model…</p>
+        </div>
       </section>
 
       <aside id="settings-panel" class="settings" hidden>
@@ -66,13 +81,25 @@
         <div class="setting-block">
           <label for="engine-select" class="field-label">Engine</label>
           <select id="engine-select">
-            <option value="browser">Browser voices (Web Speech)</option>
-            <option value="kokoro">Neural — Kokoro (experimental)</option>
+            <option value="piper" selected>Piper neural (recommended)</option>
+            <option value="kokoro">Kokoro neural (experimental)</option>
+            <option value="browser">Browser / system TTS (robotic fallback)</option>
           </select>
-          <p class="hint">Kokoro downloads a free ~82M ONNX model on first use, then runs offline in this browser.</p>
+          <p class="hint" id="engine-hint">Piper downloads a free ONNX voice on first use (cached in this browser via OPFS), then runs on-device. 100+ voices, MIT.</p>
         </div>
 
-        <div class="setting-block" id="browser-voice-block">
+        <div class="setting-block" id="piper-voice-block">
+          <label for="piper-voice-select" class="field-label">Piper voice</label>
+          <select id="piper-voice-select"></select>
+          <div id="piper-speaker-wrap" class="speaker-wrap" hidden>
+            <label for="piper-speaker-select" class="field-label">Speaker</label>
+            <select id="piper-speaker-select"></select>
+          </div>
+          <button type="button" id="btn-load-piper" class="btn btn-secondary btn-block">Download / warm up Piper voice</button>
+          <p id="piper-progress" class="hint" hidden></p>
+        </div>
+
+        <div class="setting-block" id="browser-voice-block" hidden>
           <label for="voice-select" class="field-label">Browser voice</label>
           <select id="voice-select"></select>
         </div>
@@ -84,16 +111,28 @@
           <p id="kokoro-progress" class="hint" hidden></p>
         </div>
 
-        <div class="setting-block">
+        <div class="setting-block" id="tune-block">
+          <h3 class="tune-heading">Voice tune <span id="tune-scope" class="tune-scope">per Piper voice</span></h3>
           <label for="rate-slider" class="field-label">
-            Rate <span id="rate-value">1.00×</span>
+            Speed <span id="rate-value">1.00×</span>
           </label>
           <input id="rate-slider" type="range" min="0.5" max="2" step="0.05" value="1" />
+
+          <label for="pitch-slider" class="field-label">
+            Pitch <span id="pitch-value">1.00</span>
+          </label>
+          <input id="pitch-slider" type="range" min="0.5" max="2" step="0.05" value="1" />
+
+          <label for="volume-slider" class="field-label">
+            Volume <span id="volume-value">1.00</span>
+          </label>
+          <input id="volume-slider" type="range" min="0" max="1" step="0.05" value="1" />
+          <p class="hint">Speed, pitch, and volume are saved per Piper voice (and speaker when multi-speaker). Browser/Kokoro use speed (and pitch for Web Speech).</p>
         </div>
 
         <div class="setting-block about">
           <h3>About</h3>
-          <p>Free on-device text-to-speech — paste text or a URL, pick a voice, listen. No paid APIs, no accounts.</p>
+          <p>Free on-device text-to-speech with <strong>Piper neural voices</strong> (MIT) — models download on demand and cache in your browser. No paid APIs, no accounts.</p>
           <p class="about-links">
             <a href="https://enigmaticphantasm.github.io/natural-tts-android/" target="_blank" rel="noopener noreferrer">Open web app</a>
             ·

@@ -17,6 +17,15 @@ Free, on-device text-to-speech Android app. Paste text or a URL, pick a **Piper*
 7. Long-text chunking for TTS  
 8. Preferences persisted with DataStore  
 
+
+## Browser version
+
+A free static web twin lives in [`web/`](web/):
+
+- Paste text or load a URL (readable-text extract; optional third-party CORS proxy, **off** by default)
+- **Web Speech API** voices with rate + pause/resume, plus optional **Kokoro** neural TTS in-browser (CDN / onnx, no paid APIs)
+- Open `web/index.html` locally, serve the folder (`python3 -m http.server`), or host on GitHub Pages — see [`web/README.md`](web/README.md)
+
 ## Open in Android Studio
 
 1. Install [Android Studio](https://developer.android.com/studio) (Ladybug / 2024.2+ recommended) with SDK 35 and a device/emulator (API 26+).  
@@ -131,6 +140,11 @@ natural-tts-android/
 │   ├── tts/           # engines + controller + AudioTrack player
 │   ├── ui/            # Compose screens + theme
 │   └── util/          # URL extract, text chunker
+├── web/               # static browser twin (HTML/CSS/JS)
+│   ├── index.html
+│   ├── app.js
+│   ├── styles.css
+│   └── README.md
 ├── app/build.gradle.kts
 ├── settings.gradle.kts
 └── README.md

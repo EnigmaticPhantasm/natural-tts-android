@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="description" content="Natural Reader — free on-device text-to-speech in your browser. Paste text or a URL, pick a voice, listen." />
+  <meta name="theme-color" content="#0f1419" />
+  <title>Natural Reader</title>
+  <link rel="stylesheet" href="styles.css" />
+  <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin />
+</head>
+<body>
+  <div class="app">
+    <header class="topbar">
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true">◇</span>
+        <div>
+          <h1>Natural Reader</h1>
+          <p class="tagline">Free · on-device · no accounts</p>
+        </div>
+      </div>
+      <button type="button" id="btn-settings" class="icon-btn" aria-expanded="false" aria-controls="settings-panel" title="Settings">
+        <span class="sr-only">Settings</span>
+        ⚙
+      </button>
+    </header>
+
+    <main class="main">
+      <section class="editor-card" aria-label="Text editor">
+        <label for="text-input" class="field-label">Text to read</label>
+        <textarea
+          id="text-input"
+          rows="12"
+          placeholder="Paste text here, or load from a URL below…"
+          spellcheck="true"
+        ></textarea>
+
+        <div class="url-row">
+          <input
+            id="url-input"
+            type="url"
+            inputmode="url"
+            placeholder="https://example.com/article"
+            aria-label="Page URL"
+          />
+          <button type="button" id="btn-load-url" class="btn btn-secondary">Load from URL</button>
+        </div>
+
+        <label class="check-row" title="Sends the URL through a public third-party proxy. Off by default.">
+          <input type="checkbox" id="cors-proxy-toggle" />
+          <span>Use third-party CORS proxy <em>(optional · default off)</em></span>
+        </label>
+
+        <div class="transport" role="group" aria-label="Playback controls">
+          <button type="button" id="btn-speak" class="btn btn-primary">Speak</button>
+          <button type="button" id="btn-pause" class="btn btn-secondary" disabled>Pause</button>
+          <button type="button" id="btn-stop" class="btn btn-secondary" disabled>Stop</button>
+        </div>
+
+        <p id="status" class="status" role="status" aria-live="polite">Idle</p>
+      </section>
+
+      <aside id="settings-panel" class="settings" hidden>
+        <h2>Settings</h2>
+
+        <div class="setting-block">
+          <label for="engine-select" class="field-label">Engine</label>
+          <select id="engine-select">
+            <option value="browser">Browser voices (Web Speech)</option>
+            <option value="kokoro">Neural — Kokoro (experimental)</option>
+          </select>
+          <p class="hint">Kokoro downloads a free ~82M ONNX model on first use, then runs offline in this browser.</p>
+        </div>
+
+        <div class="setting-block" id="browser-voice-block">
+          <label for="voice-select" class="field-label">Browser voice</label>
+          <select id="voice-select"></select>
+        </div>
+
+        <div class="setting-block" id="kokoro-voice-block" hidden>
+          <label for="kokoro-voice-select" class="field-label">Kokoro voice</label>
+          <select id="kokoro-voice-select"></select>
+          <button type="button" id="btn-load-kokoro" class="btn btn-secondary btn-block">Load / warm up Kokoro model</button>
+          <p id="kokoro-progress" class="hint" hidden></p>
+        </div>
+
+        <div class="setting-block">
+          <label for="rate-slider" class="field-label">
+            Rate <span id="rate-value">1.00×</span>
+          </label>
+          <input id="rate-slider" type="range" min="0.5" max="2" step="0.05" value="1" />
+        </div>
+
+        <div class="setting-block about">
+          <h3>About</h3>
+          <p>Mirrors the Android Natural Reader app in the browser. No paid APIs, no keys. See <code>README.md</code> for CORS limits and voice notes.</p>
+        </div>
+      </aside>
+    </main>
+
+    <footer class="footer">
+      <span>Natural Reader · free forever</span>
+    </footer>
+  </div>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>

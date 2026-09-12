@@ -453,11 +453,27 @@ optgroup {
 
 .voices-sound {
   margin-top: 1.15rem;
-  padding-top: 1rem;
-  border-top: 1px solid var(--border);
+  padding: 1rem 0.95rem 1.05rem;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg-soft);
 }
 
 .voices-heading {
+  margin: 0 0 0.35rem;
+  font-size: 1.15rem;
+  letter-spacing: -0.01em;
+}
+
+.voices-lead {
   margin: 0 0 0.85rem;
-  font-size: 1.05rem;
+}
+
+.voice-select-main {
+  font-size: 1.02rem;
+  min-height: 2.75rem;
+}
+
+.voices-sound + .transport {
+  margin-top: 1rem;
 }

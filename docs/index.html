@@ -6,7 +6,7 @@
   <meta name="description" content="Natural Reader — free on-device Piper neural text-to-speech. https://enigmaticphantasm.github.io/natural-tts-android/ · https://github.com/EnigmaticPhantasm/natural-tts-android" />
   <meta name="theme-color" content="#0f1419" />
   <title>Natural Reader</title>
-  <link rel="stylesheet" href="styles.css?v=3" />
+  <link rel="stylesheet" href="styles.css?v=4" />
   <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin />
   <link rel="preconnect" href="https://cdnjs.cloudflare.com" crossorigin />
   <link rel="preconnect" href="https://huggingface.co" crossorigin />
@@ -62,33 +62,22 @@
           <span>Use third-party CORS proxy <em>(optional · default off)</em></span>
         </label>
 
-        <div class="transport" role="group" aria-label="Playback controls">
-          <button type="button" id="btn-speak" class="btn btn-primary">Speak</button>
-          <button type="button" id="btn-pause" class="btn btn-secondary" disabled>Pause</button>
-          <button type="button" id="btn-stop" class="btn btn-secondary" disabled>Stop</button>
-        </div>
-
-        <p id="status" class="status" role="status" aria-live="polite">Idle</p>
-        <div id="download-progress" class="progress-block" hidden>
-          <div class="progress-track" aria-hidden="true"><div id="progress-bar" class="progress-bar"></div></div>
-          <p id="progress-label" class="hint">Downloading voice model…</p>
-        </div>
-
-        <div class="voices-sound" id="voices-sound" aria-label="Voices and sound">
-          <h2 class="voices-heading">Voices &amp; sound</h2>
+        <div class="voices-sound" id="voices-sound" aria-label="Choose Piper voice and sound">
+          <h2 class="voices-heading">Choose Piper voice</h2>
+          <p class="hint voices-lead">Pick any of 100+ free on-device voices, then adjust speed / pitch / volume. No Settings needed.</p>
 
           <div class="setting-block" id="main-piper-voice-block">
-            <label for="piper-voice-select" class="field-label">Piper voice</label>
-            <select id="piper-voice-select"></select>
+            <label for="piper-voice-select" class="field-label">Piper voice (full catalog)</label>
+            <select id="piper-voice-select" class="voice-select-main"></select>
             <div id="piper-speaker-wrap" class="speaker-wrap" hidden>
-              <label for="piper-speaker-select" class="field-label">Speaker</label>
-              <select id="piper-speaker-select"></select>
+              <label for="piper-speaker-select" class="field-label">Speaker (nickname)</label>
+              <select id="piper-speaker-select" class="voice-select-main"></select>
             </div>
             <p class="hint">First use downloads this free Piper voice (cached in this browser).</p>
           </div>
 
           <div class="setting-block" id="tune-block">
-            <h3 class="tune-heading">Voice tune <span id="tune-scope" class="tune-scope">per Piper voice</span></h3>
+            <h3 class="tune-heading">Speed · Pitch · Volume <span id="tune-scope" class="tune-scope">per Piper voice</span></h3>
             <label for="rate-slider" class="field-label">
               Speed <span id="rate-value">1.00×</span>
             </label>
@@ -103,8 +92,20 @@
               Volume <span id="volume-value">1.00</span>
             </label>
             <input id="volume-slider" type="range" min="0" max="1" step="0.05" value="1" />
-            <p class="hint">Speed, pitch, and volume are saved per Piper voice (and speaker when multi-speaker). Browser/Kokoro use speed (and pitch for Web Speech).</p>
+            <p class="hint">Saved per Piper voice (and speaker when multi-speaker). Browser/Kokoro use speed (and pitch for Web Speech).</p>
           </div>
+        </div>
+
+        <div class="transport" role="group" aria-label="Playback controls">
+          <button type="button" id="btn-speak" class="btn btn-primary">Speak</button>
+          <button type="button" id="btn-pause" class="btn btn-secondary" disabled>Pause</button>
+          <button type="button" id="btn-stop" class="btn btn-secondary" disabled>Stop</button>
+        </div>
+
+        <p id="status" class="status" role="status" aria-live="polite">Idle</p>
+        <div id="download-progress" class="progress-block" hidden>
+          <div class="progress-track" aria-hidden="true"><div id="progress-bar" class="progress-bar"></div></div>
+          <p id="progress-label" class="hint">Downloading voice model…</p>
         </div>
       </section>
 
@@ -122,7 +123,7 @@
         </div>
 
         <div class="setting-block" id="piper-voice-block">
-          <p class="hint">Piper voice, speaker, and speed/pitch/volume live in <strong>Voices &amp; sound</strong> on the main card.</p>
+          <p class="hint">Voice picker and speed/pitch/volume are on the main card under <strong>Choose Piper voice</strong>.</p>
           <button type="button" id="btn-load-piper" class="btn btn-secondary btn-block">Download / warm up Piper voice</button>
           <p id="piper-progress" class="hint" hidden></p>
         </div>
@@ -159,6 +160,6 @@
     </footer>
   </div>
 
-  <script type="module" src="app.js?v=3"></script>
+  <script type="module" src="app.js?v=4"></script>
 </body>
 </html>

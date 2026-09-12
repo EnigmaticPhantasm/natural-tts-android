@@ -5,13 +5,32 @@
  * No paid APIs, no keys, static-host friendly (GitHub Pages).
  */
 
-import {
-  predict as piperPredict,
-  voices as piperVoices,
-  download as piperDownload,
-  PATH_MAP,
-  setActiveSpeakerId,
-} from "@mintplex-labs/piper-tts-web";
+/** Piper is loaded lazily so UI still boots if onnxruntime / Safari fails. */
+let piperMod = null;
+let piperLoadError = null;
+let piperLoadPromise = null;
+
+async function ensurePiper() {
+  if (piperMod) return piperMod;
+  if (piperLoadError) throw piperLoadError;
+  if (!piperLoadPromise) {
+    piperLoadPromise = import("@mintplex-labs/piper-tts-web")
+      .then((m) => {
+        piperMod = m;
+        return m;
+      })
+      .catch((err) => {
+        piperLoadError = err;
+        piperLoadPromise = null;
+        throw err;
+      });
+  }
+  return piperLoadPromise;
+}
+
+function piperPathMap() {
+  return piperMod?.PATH_MAP || {};
+}
 
 const STORAGE_KEYS = {
   voiceURI: "nr.voiceURI",
@@ -407,7 +426,7 @@ function qualityRank(q) {
 }
 
 function buildFallbackVoiceList() {
-  const ids = Object.keys(PATH_MAP || {});
+  const ids = Object.keys(piperPathMap());
   return ids.map((id) => {
     const parts = id.split("-");
     const lang = parts[0] || "unknown";
@@ -533,19 +552,39 @@ function syncPiperSpeakerUI() {
 async function loadPiperVoiceCatalog() {
   try {
     setStatus("Loading Piper voice catalog…", "loading");
-    const list = await piperVoices();
+    const mod = await ensurePiper();
+    const list = await mod.voices();
     if (!Array.isArray(list) || !list.length) throw new Error("Empty voice list");
     populatePiperVoices(list);
     setStatus(`Idle — ${list.length} Piper voices ready.`);
     return list.length;
   } catch (err) {
     console.warn("piper voices() failed, using PATH_MAP fallback", err);
+    // Module may have loaded even if voices() failed
+    try { await ensurePiper(); } catch (_) { /* keep going */ }
     const fallback = buildFallbackVoiceList();
-    populatePiperVoices(fallback);
-    setStatus(
-      `Idle — ${fallback.length} Piper voices (offline catalog). ${err?.message || ""}`.trim()
-    );
-    return fallback.length;
+    if (fallback.length) {
+      populatePiperVoices(fallback);
+      setStatus(
+        `Idle — ${fallback.length} Piper voices (offline catalog). ${err?.message || ""}`.trim()
+      );
+      return fallback.length;
+    }
+    // Absolute failure: still leave a usable default option
+    populatePiperVoices([
+      {
+        key: DEFAULT_PIPER_VOICE,
+        name: "lessac",
+        language: { code: "en_US", family: "en", region: "US", name_english: "English", country_english: "United States" },
+        quality: "medium",
+        num_speakers: 1,
+        speaker_id_map: {},
+        files: {},
+        aliases: [],
+      },
+    ]);
+    setStatus(`Piper failed to load: ${err?.message || err}. UI still works — try Browser engine or reload.`, "error");
+    return 0;
   }
 }
 
@@ -571,7 +610,8 @@ async function ensurePiperVoiceDownloaded(voiceId) {
   state.piperLoading = true;
   try {
     showProgress(0, "Preparing Piper voice…");
-    await piperDownload(voiceId, piperProgressCallback);
+    const mod = await ensurePiper();
+    await mod.download(voiceId, piperProgressCallback);
     els.piperProgress.textContent = "Voice cached in this browser (OPFS).";
     hideProgress();
     setStatus("Piper voice ready", "idle");
@@ -767,8 +807,6 @@ async function speakPiper(text) {
     const opt = els.piperSpeaker.selectedOptions[0];
     speakerId = Number(opt?.dataset?.speakerId ?? voice?.speaker_id_map?.[speakerKey] ?? 0);
   }
-  setActiveSpeakerId(speakerId);
-
   const tune = getActiveTune();
   applyTuneToSliders(tune);
 
@@ -780,7 +818,9 @@ async function speakPiper(text) {
   showProgress(5, "Starting Piper…");
 
   try {
-    const blob = await piperPredict(
+    const mod = await ensurePiper();
+    if (typeof mod.setActiveSpeakerId === "function") mod.setActiveSpeakerId(speakerId);
+    const blob = await mod.predict(
       { text: trimmed, voiceId, speakerId },
       piperProgressCallback
     );
@@ -1343,18 +1383,46 @@ function bind() {
     ensureKokoro().catch(() => {});
   });
 
-  els.settingsBtn.addEventListener("click", () => {
-    const open = els.settingsPanel.hasAttribute("hidden");
-    if (open) els.settingsPanel.removeAttribute("hidden");
-    else els.settingsPanel.setAttribute("hidden", "");
+  const mq = window.matchMedia("(min-width: 900px)");
+
+  function setSettingsOpen(open) {
+    els.settingsPanel.classList.toggle("is-open", open);
+    if (open) {
+      els.settingsPanel.removeAttribute("hidden");
+    } else if (!mq.matches) {
+      els.settingsPanel.setAttribute("hidden", "");
+    } else {
+      // Desktop sidebar stays visible
+      els.settingsPanel.removeAttribute("hidden");
+      els.settingsPanel.classList.add("is-open");
+      open = true;
+    }
     els.settingsBtn.setAttribute("aria-expanded", open ? "true" : "false");
+  }
+
+  els.settingsBtn.addEventListener("click", () => {
+    const currentlyOpen = els.settingsPanel.classList.contains("is-open") &&
+      !els.settingsPanel.hasAttribute("hidden");
+    // On desktop the panel is always shown; still allow toggling is-open for aria,
+    // but keep it visible. On narrow viewports, truly collapse/expand.
+    if (mq.matches) {
+      setSettingsOpen(true);
+      els.settingsPanel.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      return;
+    }
+    const next = !currentlyOpen;
+    setSettingsOpen(next);
+    if (next) {
+      els.settingsPanel.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    }
   });
 
-  const mq = window.matchMedia("(min-width: 900px)");
   const syncSettingsVisibility = () => {
     if (mq.matches) {
-      els.settingsPanel.removeAttribute("hidden");
-      els.settingsBtn.setAttribute("aria-expanded", "true");
+      setSettingsOpen(true);
+    } else if (!els.settingsPanel.classList.contains("is-open")) {
+      els.settingsPanel.setAttribute("hidden", "");
+      els.settingsBtn.setAttribute("aria-expanded", "false");
     }
   };
   mq.addEventListener?.("change", syncSettingsVisibility);
@@ -1362,22 +1430,42 @@ function bind() {
 }
 
 async function init() {
+  // Bind UI first so gear / Speak work even if Piper module fails to load.
   loadPrefs();
   populateKokoroVoices();
   populateBrowserVoices();
-  // Show PATH_MAP fallback immediately so the select isn't empty while network loads
-  populatePiperVoices(buildFallbackVoiceList());
+  // Placeholder option until Piper catalog loads
+  populatePiperVoices([
+    {
+      key: DEFAULT_PIPER_VOICE,
+      name: "lessac",
+      language: { code: "en_US", family: "en", region: "US", name_english: "English", country_english: "United States" },
+      quality: "medium",
+      num_speakers: 1,
+      speaker_id_map: {},
+      files: {},
+      aliases: [],
+    },
+  ]);
   syncEngineUI();
   bind();
   updateTransport();
+  setStatus("Idle — loading Piper…");
 
   if ("speechSynthesis" in window) {
     speechSynthesis.addEventListener("voiceschanged", populateBrowserVoices);
     setTimeout(populateBrowserVoices, 250);
   }
 
-  const count = await loadPiperVoiceCatalog();
-  setStatus(`Idle — Piper neural ready (${count} voices). Paste text or load a URL.`);
+  try {
+    const count = await loadPiperVoiceCatalog();
+    if (count > 0) {
+      setStatus(`Idle — Piper neural ready (${count} voices). Paste text or load a URL.`);
+    }
+  } catch (err) {
+    console.error(err);
+    setStatus(`Piper unavailable: ${err?.message || err}. Try Browser engine or reload.`, "error");
+  }
 }
 
 init();

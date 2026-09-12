@@ -145,18 +145,30 @@ body {
   flex: 1;
 }
 
+/* Mobile/narrow: settings collapsed unless .is-open (JS also toggles [hidden]). */
+.settings:not(.is-open) {
+  display: none;
+}
+
+.settings.is-open {
+  display: block;
+}
+
 @media (min-width: 900px) {
   .main {
     grid-template-columns: minmax(0, 1.4fr) minmax(280px, 0.85fr);
     align-items: start;
   }
 
+  /* Desktop: sidebar always visible; gear stays available too. */
+  .settings,
+  .settings.is-open,
   .settings[hidden] {
     display: block !important;
   }
 
   #btn-settings {
-    display: none;
+    display: inline-grid;
   }
 }
 
@@ -436,4 +448,16 @@ optgroup {
 
 .setting-block .field-label + input[type="range"] {
   margin-bottom: 0.65rem;
+}
+
+
+.voices-sound {
+  margin-top: 1.15rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--border);
+}
+
+.voices-heading {
+  margin: 0 0 0.85rem;
+  font-size: 1.05rem;
 }
